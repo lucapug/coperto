@@ -1,0 +1,538 @@
+openapi: 3.0.3
+info:
+  title: Coperto Backend API
+  version: 0.1.0
+  description: |
+    REST contract the frontend expects, derived from the `ApiService`
+    interface in `frontend/src/services/api.ts` and its in-memory mock
+    (`frontend/src/services/mock/mockApi.ts`). Domain rules are specified
+    in `docs/plan.md` — in case of conflict, plan.md wins.
+
+    Key semantics:
+
+    - Everything belongs to exactly one shift (plan §3.1). `GET /shift`
+      returns the latest shift; the client renders "no shift yet" when it
+      gets 404.
+    - Table merging is manual and ordered: `tableIds` in the request body
+      define physical adjacency (plan §3.3). A merged group is atomic —
+      it can only be taken or released whole.
+    - Seat accounting: `usableSeats = grossSeats - 2 * junctions` (plan
+      §3.4). Seating a party larger than the usable seats is rejected
+      with 409 ("won't fit").
+    - Seating holds tables as `reserved` for a grace period (20 min,
+      plan §4.2). `bookedUntil` clears when the guest shows up.
+    - Auto-expire (plan §4.3): the server must run the sweep autonomously
+      at least every 30 s; the endpoint `POST /sweep` also exists because
+      the frontend calls it on a 5 s interval as the client-side half of
+      the behavior.
+
+    Authentication: **none**. Single trusted device, no login, no roles
+    (plan §2, out of scope). No endpoint requires authentication and no
+    security schemes are defined.
+
+servers:
+  - url: http://localhost:3000
+    description: Local backend (placeholder — real base URL TBD)
+
+# Explicitly no authentication: single trusted device (plan §2)
+security: []
+
+tags:
+  - name: Shift
+  - name: Tables
+  - name: Groups
+  - name: Parties
+  - name: Maintenance
+
+paths:
+  /shift:
+    get:
+      tags: [Shift]
+      operationId: getShift
+      summary: Latest shift, or 404 when none exists yet
+      description: The client maps 404 to `null` and shows "No shift yet".
+      responses:
+        '200':
+          description: The latest shift (open or closed)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shift' }
+        '404':
+          description: No shift has ever been opened
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceError' }
+    post:
+      tags: [Shift]
+      operationId: openShift
+      summary: Open a new shift
+      description: |
+        Starts a fresh shift: empty waitlist, all tables free. Previous
+        shift data is retained (closing is non-destructive, plan §3.1).
+      responses:
+        '201':
+          description: Shift opened
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shift' }
+        '409':
+          description: A shift is already open
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceError' }
+
+  /shift/close:
+    post:
+      tags: [Shift]
+      operationId: closeShift
+      summary: Close the open shift
+      description: |
+        Any party still waiting or seated is marked `left`, every table
+        returns to `free`, every group is dissolved (plan §4.5).
+      responses:
+        '200':
+          description: Shift closed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shift' }
+        '409':
+          description: No open shift
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceError' }
+
+  /tables:
+    get:
+      tags: [Tables]
+      operationId: listTables
+      summary: List all tables with live status
+      responses:
+        '200':
+          description: Table list (static set of tables, seeded once)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Table' }
+
+  /groups:
+    get:
+      tags: [Groups]
+      operationId: listGroups
+      summary: List table groups in the active shift
+      responses:
+        '200':
+          description: Group list (may be empty)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/TableGroup' }
+    post:
+      tags: [Groups]
+      operationId: combineTables
+      summary: Merge free tables into a group, in selection order
+      description: |
+        `tableIds` order defines physical adjacency (plan §3.3). Selecting
+        members of an existing *free* group is allowed only as a whole
+        (atomic); the group is then re-created in the new selection order.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CombineTablesInput' }
+      responses:
+        '201':
+          description: Group created; member tables become `combined`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableGroup' }
+        '404':
+          description: Unknown table id in the selection
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceError' }
+        '409':
+          description: |
+            A table is not free, or a partially-selected group violates
+            atomicity, or no shift is open
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceError' }
+        '422':
+          description: Fewer than two tables or duplicate ids
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceError' }
+
+  /groups/{groupId}:
+    delete:
+      tags: [Groups]
+      operationId: dissolveGroup
+      summary: Dissolve a group; every member table returns to free
+      parameters:
+        - name: groupId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: Group dissolved
+        '404':
+          description: Unknown group
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceError' }
+        '409':
+          description: A party is seated on this group — mark them left first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceError' }
+
+  /parties:
+    get:
+      tags: [Parties]
+      operationId: listParties
+      summary: List parties of the latest shift
+      responses:
+        '200':
+          description: Party list (may be empty)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Party' }
+    post:
+      tags: [Parties]
+      operationId: addParty
+      summary: Add a party to the end of the waitlist queue
+      description: |
+        name, size and phone are required. `estimatedWaitMinutes` is
+        entered manually by the host — no calculation (plan §4.1).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddPartyInput' }
+      responses:
+        '201':
+          description: Party created with status `waiting`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Party' }
+        '409':
+          description: No open shift
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceError' }
+        '422':
+          description: Missing name/phone or invalid size / estimated wait
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceError' }
+
+  /parties/{partyId}/seat:
+    post:
+      tags: [Parties]
+      operationId: seatParty
+      summary: Seat a waiting party on one table or a merged group
+      description: |
+        One table id seats directly (table becomes `reserved`); several
+        ids create a TableGroup (plan §4.2). The party is rejected when
+        its size exceeds usable seats. `bookedUntil` is set to now plus
+        the grace period (20 min, constant).
+      parameters:
+        - name: partyId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SeatPartyInput' }
+      responses:
+        '200':
+          description: Party seated; `group` is null when seated on a single table
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeatResult' }
+        '404':
+          description: Unknown party or table id
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceError' }
+        '409':
+          description: |
+            Party is not waiting, a table is not free, group atomicity
+            violated, no open shift, or the party won't fit on the usable
+            seats
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceError' }
+        '422':
+          description: Empty selection or duplicate table ids
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceError' }
+
+  /parties/{partyId}/arrived:
+    post:
+      tags: [Parties]
+      operationId: markArrived
+      summary: Guest showed up — clear the expiry countdown
+      description: |
+        Clears `bookedUntil`; a single table becomes `occupied`. Tables
+        stay held until the party is marked left (plan §3.6).
+      parameters:
+        - name: partyId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Updated party
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Party' }
+        '404':
+          description: Unknown party
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceError' }
+        '409':
+          description: Party is not seated, or already marked arrived
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceError' }
+
+  /parties/{partyId}/left:
+    post:
+      tags: [Parties]
+      operationId: markLeft
+      summary: Mark a waiting or seated party as left
+      description: |
+        waiting -> left (no tables involved); seated -> left and every
+        held table is released to `free`, dissolving its group (plan §3.6).
+      parameters:
+        - name: partyId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Updated party
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Party' }
+        '404':
+          description: Unknown party
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceError' }
+        '409':
+          description: Party already left or is a no-show
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceError' }
+
+  /parties/{partyId}/requeue:
+    post:
+      tags: [Parties]
+      operationId: requeueParty
+      summary: Manually re-add a no-show party to the end of the queue
+      description: Plan §4.4 — never restored automatically, host action only.
+      parameters:
+        - name: partyId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Updated party, back to `waiting`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Party' }
+        '404':
+          description: Unknown party
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceError' }
+        '409':
+          description: Party is not a no-show, or no open shift
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ServiceError' }
+
+  /sweep:
+    post:
+      tags: [Maintenance]
+      operationId: sweep
+      summary: Auto-expire overdue seated parties
+      description: |
+        Every `seated` party past its `bookedUntil` becomes `no_show` and
+        its tables are released (plan §4.3). Returns the parties expired
+        by this call (possibly empty). The server must also run this
+        autonomously at least every 30 s (plan §6); the frontend calls
+        this endpoint every 5 s.
+      responses:
+        '200':
+          description: Parties just expired by this sweep
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Party' }
+
+components:
+  schemas:
+    Shift:
+      type: object
+      required: [id, openedAt, closedAt, status]
+      properties:
+        id: { type: string, format: uuid }
+        openedAt: { type: string, format: date-time }
+        closedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: null while the shift is open
+        status: { type: string, enum: [open, closed] }
+
+    Table:
+      type: object
+      required: [id, label, seats, status, groupId, lockedByPartyId]
+      properties:
+        id: { type: string, format: uuid }
+        label:
+          type: string
+          description: 'e.g. "T12"'
+        seats: { type: integer, minimum: 2, maximum: 4 }
+        status: { type: string, enum: [free, occupied, reserved, combined] }
+        groupId:
+          type: string
+          format: uuid
+          nullable: true
+          description: set when merged into a group
+        lockedByPartyId:
+          type: string
+          format: uuid
+          nullable: true
+          description: party currently holding the table
+
+    TableGroup:
+      type: object
+      required: [id, shiftId, tableIds, grossSeats, usableSeats, junctions, partyId]
+      properties:
+        id: { type: string, format: uuid }
+        shiftId: { type: string, format: uuid }
+        tableIds:
+          type: array
+          items: { type: string, format: uuid }
+          description: ordered — physical adjacency order, defined by the host's selection
+        grossSeats: { type: integer, description: sum of member table seats }
+        usableSeats:
+          type: integer
+          description: 'grossSeats - 2 per junction (plan §3.4)'
+        junctions:
+          type: integer
+          description: tableIds.length - 1
+        partyId:
+          type: string
+          format: uuid
+          nullable: true
+          description: party seated on this group; null while free
+
+    Party:
+      type: object
+      required: [id, shiftId, name, size, phone, notes, estimatedWait, status, tableOrGroupId, seatedAt, bookedUntil, createdAt, position]
+      properties:
+        id: { type: string, format: uuid }
+        shiftId: { type: string, format: uuid }
+        name: { type: string }
+        size: { type: integer, minimum: 1 }
+        phone: { type: string }
+        notes:
+          type: string
+          nullable: true
+          description: allergies, high chair, wheelchair, etc.
+        estimatedWait:
+          type: integer
+          nullable: true
+          description: minutes, entered manually by the host
+        status: { type: string, enum: [waiting, seated, no_show, left] }
+        tableOrGroupId:
+          type: string
+          format: uuid
+          nullable: true
+          description: table id or group id, assigned when seated
+        seatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        bookedUntil:
+          type: string
+          format: date-time
+          nullable: true
+          description: seatedAt + grace period; cleared when the guest shows up
+        createdAt: { type: string, format: date-time }
+        position:
+          type: integer
+          minimum: 1
+          description: order in the queue
+
+    AddPartyInput:
+      type: object
+      required: [name, size, phone]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        size: { type: integer, minimum: 1 }
+        phone:
+          type: string
+          minLength: 1
+        notes: { type: string }
+        estimatedWaitMinutes: { type: integer, minimum: 0 }
+
+    CombineTablesInput:
+      type: object
+      required: [tableIds]
+      properties:
+        tableIds:
+          type: array
+          minItems: 2
+          uniqueItems: true
+          items: { type: string, format: uuid }
+
+    SeatPartyInput:
+      type: object
+      required: [tableIds]
+      properties:
+        tableIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          description: one table, or several in physical adjacency order
+          items: { type: string, format: uuid }
+
+    SeatResult:
+      type: object
+      required: [party, group]
+      properties:
+        party: { $ref: '#/components/schemas/Party' }
+        group:
+          type: object
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/TableGroup' }]
+          description: the group created by this seating; null for a single table
+
+    ServiceError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [validation, conflict]
+          description: 'validation -> HTTP 422; conflict -> HTTP 409 (404 for unknown ids)'
+        message: { type: string }
