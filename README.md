@@ -35,6 +35,23 @@ Run the tests:
 cd frontend && npm test
 ```
 
+## Run the backend
+
+FastAPI implementation of the contract in [`openapi.yaml`](openapi.yaml), with
+an in-memory store seeded with demo data at startup:
+
+```bash
+cd backend
+uv sync
+uv run uvicorn app.main:app --reload --port 3000
+```
+
+Interactive docs at `http://localhost:3000/docs`. Tests:
+
+```bash
+cd backend && uv run pytest
+```
+
 ## Docs
 
 The full specification lives in [`docs/plan.md`](docs/plan.md).
