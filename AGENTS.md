@@ -1,6 +1,9 @@
 # AGENTS.md
 
-regularly commit code to git
+for backend, use uv for dependency management. a few useful commands:
 
-Note: docs/plan.md is the source of truth for this project (stack and
-behavior). For the frontend prototype see README.md.
+uv sync
+uv add <PACKAGE-NAME>
+uv run python <PYTHON-FILE>
+
+regularly commit code to git

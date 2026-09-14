@@ -242,10 +242,11 @@ Kept deliberately boring — single developer, small surface area.
 
 - **Frontend:** React + TypeScript, Vite. No component library beyond
   utility CSS (Tailwind) to keep the tablet UI fast to build.
-- **Backend:** Node + TypeScript, Fastify or Express. Thin REST API.
-- **Database:** SQLite via better-sqlite3. One file, zero ops, and at
-  100–120 tables and a few hundred parties per shift it is far beyond
-  enough. Swap to Postgres later only if multi-location ever appears.
+- **Backend:** Python + FastAPI. Thin REST API; `openapi.yaml` at the repo
+  root is the contract. uv for dependency management.
+- **Database:** SQLite via the Python standard library (`sqlite3`). One file,
+  zero ops, and at 100–120 tables and a few hundred parties per shift it is
+  far beyond enough. Swap to Postgres later only if multi-location ever appears.
 - **State sync:** Client polls or uses SSE. No WebSocket needed at this scale.
 - **Auth:** None.
 - **Deploy:** Single Docker container, SQLite volume. Runs on any cheap VPS.
