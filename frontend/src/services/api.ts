@@ -7,7 +7,9 @@ import type { Party, Shift, Table, TableGroup } from '../types';
 export class ServiceError extends Error {
   constructor(
     message: string,
-    readonly code: 'validation' | 'conflict' = 'validation',
+    /** validation/conflict/not_found come from the backend's contract;
+     *  network/unknown are client-side */
+    readonly code: 'validation' | 'conflict' | 'not_found' | 'network' | 'unknown' = 'validation',
   ) {
     super(message);
     this.name = 'ServiceError';

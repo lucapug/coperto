@@ -12,28 +12,21 @@ A single-host waitlist and table management tool for a busy seaside restaurant. 
 
 Built for one dedicated tablet in landscape, used by one host with one hand while standing. No login, no guest-facing app, no notifications.
 
-## Try the prototype
+## Try it
 
-The frontend runs standalone against an in-memory mock backend — no server needed:
-
-```bash
-cd frontend
-npm install
-npm run dev      # http://localhost:5173
-```
-
-Every backend call is centralized in `frontend/src/services/` behind the
-`ApiService` interface ([api.ts](frontend/src/services/api.ts));
-[MockApi](frontend/src/services/mock/mockApi.ts) implements it in memory,
-including table merging with junction seat loss, the 20-minute auto-expire
-sweep and shift open/close. Swap in an HTTP client later without touching
-the components.
-
-Run the tests:
+Run both halves:
 
 ```bash
-cd frontend && npm test
+make backend    # FastAPI on :3000, seeded demo data
+make frontend   # Vite dev server on :5173, talks to the backend
 ```
+
+The frontend consumes the backend through a single services layer behind the
+`ApiService` interface ([api.ts](frontend/src/services/api.ts)). Two
+implementations: [HttpApi](frontend/src/services/http/httpApi.ts) (default —
+REST per `openapi.yaml`, set `VITE_API_URL` to override the base URL) and
+[MockApi](frontend/src/services/mock/mockApi.ts) (in-memory, used by the
+component tests). Run everything with `make test`.
 
 ## Run the backend
 
