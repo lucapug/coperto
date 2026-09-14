@@ -4,12 +4,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import create_app
-from app.store import InMemoryStore
+
+# in-memory SQLite: one shared connection per engine, fresh per app
+TEST_DB = "sqlite://"
 
 
 @pytest.fixture()
 def client() -> TestClient:
-    return TestClient(create_app(seed_demo=False))
+    return TestClient(create_app(db_url=TEST_DB, seed_demo=False))
 
 
 class Clock:
@@ -32,10 +34,10 @@ def clock() -> Clock:
 
 @pytest.fixture()
 def frozen_client(clock: Clock) -> TestClient:
-    app = create_app(store=InMemoryStore(now_fn=clock), seed_demo=False)
+    app = create_app(db_url=TEST_DB, now_fn=clock, seed_demo=False)
     return TestClient(app)
 
 
 @pytest.fixture()
 def seeded_client() -> TestClient:
-    return TestClient(create_app(seed_demo=True))
+    return TestClient(create_app(db_url=TEST_DB, seed_demo=True))

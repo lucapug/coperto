@@ -1,5 +1,7 @@
+from datetime import datetime, timezone
 from uuid import UUID
 
+from app.orm import PartyRow
 from helpers import add_party, table_ids
 
 
@@ -174,8 +176,11 @@ def test_requeue_requires_no_show(client):
 
     # turn Rossi into a no-show via the store clock, then requeue
     client.post(f"/parties/{party['id']}/seat", json={"tableIds": [ids["T1"]]})
-    app_store = client.app.state.store
-    app_store.parties[UUID(party["id"])].booked_until = app_store.now()
+    session_factory = client.app.state.session_factory
+    with session_factory() as session:
+        row = session.get(PartyRow, UUID(party["id"]))
+        row.booked_until = datetime.now(timezone.utc)
+        session.commit()
     client.post("/sweep")
 
     response = client.post(f"/parties/{party['id']}/requeue")

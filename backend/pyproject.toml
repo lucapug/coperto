@@ -5,6 +5,7 @@ description = "Coperto waitlist backend — FastAPI implementation of openapi.ya
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
+    "sqlalchemy>=2.0.52",
     "uvicorn>=0.30",
 ]
 

@@ -1,12 +1,21 @@
-"""Demo data so the frontend has something to show on first load."""
+"""Demo data so the frontend has something to show on first boot.
+
+Idempotent: the demo shift/parties are only created when the database has
+no shift at all — restarting the server on an existing database never
+duplicates data. (The static table floor is seeded by seed_tables.)
+"""
 
 from datetime import timedelta
 
 from .models import AddPartyInput
-from .store import InMemoryStore
+from .orm import PartyRow
+from .store import DatabaseStore
 
 
-def seed_demo_data(store: InMemoryStore) -> None:
+def seed_demo_data(store: DatabaseStore) -> None:
+    if store.get_shift() is not None:
+        return  # already seeded, or a real shift exists — leave it alone
+
     store.open_shift()
 
     store.add_party(
@@ -26,8 +35,12 @@ def seed_demo_data(store: InMemoryStore) -> None:
     # a free-standing 6-seat group (8 gross, 1 junction)
     store.combine_tables([labels["T9"], labels["T10"]])
 
-    # a no-show for the waitlist's no-show section: seat then expire via sweep
+    # a no-show for the waitlist's no-show section: pull Conti's booking
+    # into the past, then expire through the normal sweep
     conti = store.add_party(AddPartyInput(name="Conti", size=2, phone="333 2223334"))
     store.seat_party(conti.id, [labels["T2"]])
-    store.parties[conti.id].booked_until = store.now() - timedelta(minutes=5)
+    with store.session_factory() as session:
+        row = session.get(PartyRow, conti.id)
+        row.booked_until = store.now() - timedelta(minutes=5)
+        session.commit()
     store.sweep()

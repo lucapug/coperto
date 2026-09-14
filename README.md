@@ -30,14 +30,20 @@ component tests). Run everything with `make test`.
 
 ## Run the backend
 
-FastAPI implementation of the contract in [`openapi.yaml`](openapi.yaml), with
-an in-memory store seeded with demo data at startup:
+FastAPI implementation of the contract in [`openapi.yaml`](openapi.yaml), backed
+by SQLite through SQLAlchemy:
 
 ```bash
 cd backend
 uv sync
 uv run uvicorn app.main:app --reload --port 3000
 ```
+
+The database comes from the `COPERTO_DB` environment variable (default
+`sqlite:///coperto.db`). Any SQLAlchemy URL works — e.g.
+`COPERTO_DB=postgresql+psycopg://user:pw@host/coperto` — since the schema is
+portable (UUID keys, tz-aware datetimes, no SQLite-only features). Demo data
+is seeded on first boot only and survives restarts.
 
 Interactive docs at `http://localhost:3000/docs`. Or simply `make backend`
 from the repo root (see `make help` for all targets). Tests:

@@ -244,9 +244,11 @@ Kept deliberately boring — single developer, small surface area.
   utility CSS (Tailwind) to keep the tablet UI fast to build.
 - **Backend:** Python + FastAPI. Thin REST API; `openapi.yaml` at the repo
   root is the contract. uv for dependency management.
-- **Database:** SQLite via the Python standard library (`sqlite3`). One file,
-  zero ops, and at 100–120 tables and a few hundred parties per shift it is
-  far beyond enough. Swap to Postgres later only if multi-location ever appears.
+- **Database:** SQLite via SQLAlchemy 2.0. One file, zero ops, and at
+  100–120 tables and a few hundred parties per shift it is far beyond
+  enough. The connection comes from the `COPERTO_DB` environment variable
+  (any SQLAlchemy URL) and the schema is portable (UUID keys, tz-aware
+  datetimes), so Postgres can drop in later if multi-location ever appears.
 - **State sync:** Client polls or uses SSE. No WebSocket needed at this scale.
 - **Auth:** None.
 - **Deploy:** Single Docker container, SQLite volume. Runs on any cheap VPS.
