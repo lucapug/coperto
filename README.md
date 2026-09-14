@@ -12,6 +12,29 @@ A single-host waitlist and table management tool for a busy seaside restaurant. 
 
 Built for one dedicated tablet in landscape, used by one host with one hand while standing. No login, no guest-facing app, no notifications.
 
+## Try the prototype
+
+The frontend runs standalone against an in-memory mock backend — no server needed:
+
+```bash
+cd frontend
+npm install
+npm run dev      # http://localhost:5173
+```
+
+Every backend call is centralized in `frontend/src/services/` behind the
+`ApiService` interface ([api.ts](frontend/src/services/api.ts));
+[MockApi](frontend/src/services/mock/mockApi.ts) implements it in memory,
+including table merging with junction seat loss, the 20-minute auto-expire
+sweep and shift open/close. Swap in an HTTP client later without touching
+the components.
+
+Run the tests:
+
+```bash
+cd frontend && npm test
+```
+
 ## Docs
 
 The full specification lives in [`docs/plan.md`](docs/plan.md).
