@@ -46,7 +46,8 @@ uv sync
 uv run uvicorn app.main:app --reload --port 3000
 ```
 
-Interactive docs at `http://localhost:3000/docs`. Tests:
+Interactive docs at `http://localhost:3000/docs`. Or simply `make backend`
+from the repo root (see `make help` for all targets). Tests:
 
 ```bash
 cd backend && uv run pytest
